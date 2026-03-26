@@ -1,0 +1,13 @@
+# Environment variables (contain secrets)
+.env
+.env.*
+
+# GCS credentials
+gcs.json
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db

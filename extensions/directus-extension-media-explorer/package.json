@@ -1,0 +1,20 @@
+{
+    "name": "directus-extension-media-explorer",
+    "version": "1.0.0",
+    "description": "Explorador de medios avanzado con previsualización de imágenes, videos y audio.",
+    "type": "module",
+    "directus:extension": {
+        "type": "module",
+        "path": "dist/index.js",
+        "source": "src/index.js",
+        "host": "^11.0.0"
+    },
+    "scripts": {
+        "build": "npx --yes @directus/extensions-sdk@latest build",
+        "dev": "npx --yes @directus/extensions-sdk@latest build -w --no-minify"
+    },
+    "devDependencies": {
+        "@directus/extensions-sdk": "^12.0.0",
+        "vue": "^3.4.0"
+    }
+}

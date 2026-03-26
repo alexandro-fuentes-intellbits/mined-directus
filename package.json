@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "directus-extension-streaming-video-player": "^1.0.8"
+  }
+}
