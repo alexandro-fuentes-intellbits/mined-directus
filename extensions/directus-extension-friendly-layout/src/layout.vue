@@ -3,6 +3,10 @@
 		<!-- Barra de herramientas con Filtros Custom -->
 		<div class="friendly-toolbar" v-if="items[collectionName] && items[collectionName].length > 0">
 			<div class="filters-row">
+				<select v-model="filterEscuela" class="filter-select">
+					<option value="">Todas las Escuelas</option>
+					<option v-for="opt in uniqueEscuelas" :key="opt" :value="opt">{{ opt }}</option>
+				</select>
 				<select v-model="filterClase" class="filter-select">
 					<option value="">Todas las Clases</option>
 					<option v-for="opt in uniqueClases" :key="opt" :value="opt">{{ opt }}</option>
@@ -36,9 +40,6 @@
 			>
 			<div class="friendly-card-header">
 				<h3 class="friendly-card-title">{{ getTitle(item) }}</h3>
-				<span v-if="getStatus(item)" class="friendly-badge" :style="{ backgroundColor: getStatus(item).color }">
-					{{ getStatus(item).label }}
-				</span>
 			</div>
 			<div class="friendly-card-body">
 				<div class="card-columns">
@@ -268,10 +269,31 @@ export default defineComponent({
 		const filterClase = ref('');
 		const filterMateria = ref('');
 		const filterProfesor = ref('');
+		const filterEscuela = ref('');
 
 		const removeAccents = (str: string) => {
 			return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 		};
+
+		const getSchool = (item: any): string => {
+			try {
+				const classroom = item.classroom_id;
+				if (!classroom || typeof classroom !== 'object') return '--';
+				const school = classroom.school_id;
+				if (!school) return '--';
+				if (typeof school === 'object') {
+					return school.name || school.nombre || school.title || '--';
+				}
+				// If school is a UUID string, return it but we can't resolve name without another fetch
+				return '--';
+			} catch { return '--'; }
+		};
+
+		const uniqueEscuelas = computed(() => {
+			const rawItems = layoutCache.value[collection.value] || [];
+			const set = new Set(rawItems.map((i: any) => getSchool(i)));
+			return Array.from(set).filter(v => v !== '--').sort();
+		});
 
 		const uniqueClases = computed(() => {
 			const rawItems = layoutCache.value[collection.value] || [];
@@ -295,11 +317,13 @@ export default defineComponent({
 			const rawItems = layoutCache.value[collection.value] || [];
 			
 			return rawItems.filter((item: any) => {
+				const escuela = getSchool(item);
 				const clase = getInfoField(item, ['classroom_id', 'class_id', 'clase', 'name', 'title', 'nombre']);
 				const materia = getInfoField(item, ['subject_id', 'materia_id', 'materia', 'curso', 'course', 'subject', 'modulo']);
 				const profesor = getInfoField(item, ['teacher_id', 'profesor_id', 'profesor', 'teacher', 'docente', 'instructor']);
 				
 				// Filtros Dropdown strictos
+				if (filterEscuela.value && filterEscuela.value !== escuela) return false;
 				if (filterClase.value && filterClase.value !== clase) return false;
 				if (filterMateria.value && filterMateria.value !== materia) return false;
 				if (filterProfesor.value && filterProfesor.value !== profesor) return false;
@@ -335,9 +359,11 @@ export default defineComponent({
 			filterClase,
 			filterMateria,
 			filterProfesor,
+			filterEscuela,
 			uniqueClases,
 			uniqueMaterias,
 			uniqueProfesores,
+			uniqueEscuelas,
 			filteredItems
 		};
 	},
