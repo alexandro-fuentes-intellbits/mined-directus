@@ -374,37 +374,32 @@ async function fetchClassroomOptions() {
 		console.info(`${LOG_PREFIX} No school selected yet; classroom request skipped.`);
 		return;
 	}
-	const params = {
-		fields: ['id', 'name', 'nickname', 'nombre', 'title'],
-		limit: DEFAULT_LIMIT,
-		filter: { school_id: { _eq: filterEscuela.value } },
-		sort: ['name', 'nickname'],
-	};
-
 	console.groupCollapsed(`${LOG_PREFIX} Fetch classrooms for school`);
 	console.info('school_id:', filterEscuela.value);
 	console.info('endpoint:', `/items/${CLASSROOMS_COLLECTION}`);
-	console.info('params:', params);
 
 	try {
-		const res = await api.get(`/items/${CLASSROOMS_COLLECTION}`, {
-			params,
+		const res = await api.get(`/items/${CLASSROOMS_COLLECTION}`);
+		const allClassrooms = res.data?.data || [];
+
+		const rowsForSchool = allClassrooms.filter((row) => {
+			const schoolRef = row?.school_id;
+			const schoolId = typeof schoolRef === 'object' ? schoolRef?.id : schoolRef;
+			return String(schoolId || '') === String(filterEscuela.value);
 		});
-		const rows = res.data?.data || [];
-		classroomTotalFromApi.value = rows.length;
-		classroomOptions.value = rows
+
+		classroomTotalFromApi.value = rowsForSchool.length;
+		classroomOptions.value = rowsForSchool
 			.map((row) => ({
 				id: row.id,
 				label: getRelationLabel(row, ['nickname', 'name', 'nombre', 'title']),
 			}))
 			.filter((option) => option.id && option.label !== '--')
 			.sort((a, b) => a.label.localeCompare(b.label, 'es'));
-		console.info('total_classrooms_from_api:', rows.length);
+		console.info('total_classrooms_all_from_api:', allClassrooms.length);
+		console.info('total_classrooms_for_school:', rowsForSchool.length);
 		console.info('classroom_options:', classroomOptions.value);
-		console.info(
-			'manual_url_example:',
-			`/items/${CLASSROOMS_COLLECTION}?filter[school_id][_eq]=${filterEscuela.value}&fields=id,name,nickname,nombre,title&limit=${DEFAULT_LIMIT}`
-		);
+		console.info('manual_url_example:', `/items/${CLASSROOMS_COLLECTION}`);
 	} catch (e) {
 		console.error('[class-schedules module] fetchClassroomOptions', e);
 		classroomOptions.value = [];
@@ -420,18 +415,40 @@ async function fetchTeacherOptions() {
 		return;
 	}
 	try {
-		const res = await api.get(`/items/${SCHEDULES_COLLECTION}`, {
-			params: {
-				fields: ['teacher_id.id', 'teacher_id.name', 'teacher_id.nickname', 'teacher_id.nombre', 'teacher_id.first_name'],
-				limit: DEFAULT_LIMIT,
-				filter: {
-					school_id: { _eq: filterEscuela.value },
-					classroom_id: { _eq: filterClase.value },
-				},
-				sort: '-date_created',
-			},
+		const [schedulesRes, teachersRes] = await Promise.all([
+			api.get(`/items/${SCHEDULES_COLLECTION}`),
+			api.get('/items/teachers'),
+		]);
+		const allSchedules = schedulesRes.data?.data || [];
+		const allTeachers = teachersRes.data?.data || [];
+
+		const schedulesForSelection = allSchedules.filter((row) => {
+			const schoolRef = row?.school_id;
+			const classroomRef = row?.classroom_id;
+			const schoolId = typeof schoolRef === 'object' ? schoolRef?.id : schoolRef;
+			const classroomId = typeof classroomRef === 'object' ? classroomRef?.id : classroomRef;
+			return String(schoolId || '') === String(filterEscuela.value) &&
+				String(classroomId || '') === String(filterClase.value);
 		});
-		teacherOptions.value = uniqueOptionRows(res.data?.data || [], 'teacher_id', ['name', 'nickname', 'nombre', 'first_name']);
+
+		const teacherIds = new Set(
+			schedulesForSelection
+				.map((row) => {
+					const teacherRef = row?.teacher_id;
+					return typeof teacherRef === 'object' ? teacherRef?.id : teacherRef;
+				})
+				.filter(Boolean)
+				.map((id) => String(id))
+		);
+
+		teacherOptions.value = allTeachers
+			.filter((teacher) => teacherIds.has(String(teacher?.id || '')))
+			.map((teacher) => ({
+				id: teacher.id,
+				label: getRelationLabel(teacher, ['name', 'nickname', 'nombre', 'first_name']),
+			}))
+			.filter((option) => option.id && option.label !== '--')
+			.sort((a, b) => a.label.localeCompare(b.label, 'es'));
 	} catch (e) {
 		console.error('[class-schedules module] fetchTeacherOptions', e);
 		teacherOptions.value = [];
@@ -444,19 +461,43 @@ async function fetchSubjectOptions() {
 		return;
 	}
 	try {
-		const res = await api.get(`/items/${SCHEDULES_COLLECTION}`, {
-			params: {
-				fields: ['subject_id.id', 'subject_id.name', 'subject_id.nickname', 'subject_id.nombre', 'subject_id.title'],
-				limit: DEFAULT_LIMIT,
-				filter: {
-					school_id: { _eq: filterEscuela.value },
-					classroom_id: { _eq: filterClase.value },
-					teacher_id: { _eq: filterProfesor.value },
-				},
-				sort: '-date_created',
-			},
+		const [schedulesRes, subjectsRes] = await Promise.all([
+			api.get(`/items/${SCHEDULES_COLLECTION}`),
+			api.get('/items/subjects'),
+		]);
+		const allSchedules = schedulesRes.data?.data || [];
+		const allSubjects = subjectsRes.data?.data || [];
+
+		const schedulesForSelection = allSchedules.filter((row) => {
+			const schoolRef = row?.school_id;
+			const classroomRef = row?.classroom_id;
+			const teacherRef = row?.teacher_id;
+			const schoolId = typeof schoolRef === 'object' ? schoolRef?.id : schoolRef;
+			const classroomId = typeof classroomRef === 'object' ? classroomRef?.id : classroomRef;
+			const teacherId = typeof teacherRef === 'object' ? teacherRef?.id : teacherRef;
+			return String(schoolId || '') === String(filterEscuela.value) &&
+				String(classroomId || '') === String(filterClase.value) &&
+				String(teacherId || '') === String(filterProfesor.value);
 		});
-		subjectOptions.value = uniqueOptionRows(res.data?.data || [], 'subject_id', ['name', 'nickname', 'nombre', 'title']);
+
+		const subjectIds = new Set(
+			schedulesForSelection
+				.map((row) => {
+					const subjectRef = row?.subject_id;
+					return typeof subjectRef === 'object' ? subjectRef?.id : subjectRef;
+				})
+				.filter(Boolean)
+				.map((id) => String(id))
+		);
+
+		subjectOptions.value = allSubjects
+			.filter((subject) => subjectIds.has(String(subject?.id || '')))
+			.map((subject) => ({
+				id: subject.id,
+				label: getRelationLabel(subject, ['name', 'nickname', 'nombre', 'title']),
+			}))
+			.filter((option) => option.id && option.label !== '--')
+			.sort((a, b) => a.label.localeCompare(b.label, 'es'));
 	} catch (e) {
 		console.error('[class-schedules module] fetchSubjectOptions', e);
 		subjectOptions.value = [];
