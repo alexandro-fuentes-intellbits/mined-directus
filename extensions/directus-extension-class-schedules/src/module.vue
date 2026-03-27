@@ -324,6 +324,9 @@ const filteredItems = computed(() => {
 		const materia  = getInfoField(item, ['subject_id','materia_id','materia','curso','course','subject','modulo']);
 		const profesor = getInfoField(item, ['teacher_id','profesor_id','profesor','teacher','docente','instructor']);
 
+		// Solo mostrar cards que tengan clase válida.
+		if (!clase || clase === '--') return false;
+
 		if (filterEscuela.value  && filterEscuela.value  !== escuela)  return false;
 		if (filterClase.value    && filterClase.value    !== clase)    return false;
 		if (filterMateria.value  && filterMateria.value  !== materia)  return false;
@@ -437,24 +440,44 @@ const filteredItems = computed(() => {
 /* Dates */
 .cs-card-dates {
 	display: flex;
-	gap: 16px;
+	gap: 10px; /* Espacio entre los cuadros blancos */
+	margin-top: 2px;
+	/* Si quieres que el fondo de la tarjeta sea gris para que el blanco resalte más, 
+	   puedes añadir un padding aquí o asegurar que .cs-card tenga un fondo gris muy tenue */
 }
 .cs-date-col {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: 6px;
+	flex: 1;
+	
+	/* FONCO BLANCO PURO */
+	background: #ffffff !important; 
+	
+	/* BORDE Y SOMBRA (Clave para el efecto de la foto) */
+	border: 1px solid rgba(0, 0, 0, 0.05);
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+	
+	border-radius: 10px;
+	padding: 10px 12px;
+	min-height: 72px;
+	justify-content: center;
+	align-items: center;
+	text-align: center;
+	transition: transform 0.2s ease;
 }
 .cs-date-label {
-	font-size: 10px;
+	font-size: 12px;
 	font-weight: 700;
 	text-transform: uppercase;
-	letter-spacing: 0.5px;
-	color: var(--theme--foreground-subdued, #999);
+	letter-spacing: 0.6px;
+	color: #9cb0c8;
 }
 .cs-date-value {
-	font-size: 12px;
-	font-weight: 500;
+	font-size: 15px;
+	font-weight: 600;
 	color: var(--theme--foreground, #333);
+	line-height: 1.2;
 }
 
 .cs-divider {
