@@ -19,24 +19,24 @@
 			</div>
 		</template>
 
-		<div class="cs-wrapper">
+			<div class="cs-wrapper">
 			<!-- Filtros -->
-			<div class="cs-filters" v-if="allItems.length > 0">
-				<select v-model="filterEscuela" class="cs-select">
+			<div class="cs-filters" v-if="allItems.length > 0 || hasActiveFilters">
+				<select v-model="filterEscuela" class="cs-select" @change="onEscuelaChange">
 					<option value="">Todas las Escuelas</option>
-					<option v-for="opt in uniqueEscuelas" :key="opt" :value="opt">{{ opt }}</option>
+					<option v-for="opt in visibleSchoolOptions" :key="opt.id" :value="opt.id">{{ opt.label }}</option>
 				</select>
-				<select v-model="filterClase" class="cs-select">
-					<option value="">Todas las Clases</option>
-					<option v-for="opt in uniqueClases" :key="opt" :value="opt">{{ opt }}</option>
+				<select v-model="filterClase" class="cs-select" :disabled="!filterEscuela" @change="onAulaChange">
+					<option value="">{{ classroomPlaceholderText }}</option>
+					<option v-for="opt in classroomOptions" :key="opt.id" :value="opt.id">{{ opt.label }}</option>
 				</select>
-				<select v-model="filterMateria" class="cs-select">
-					<option value="">Todas las Materias</option>
-					<option v-for="opt in uniqueMaterias" :key="opt" :value="opt">{{ opt }}</option>
+				<select v-model="filterProfesor" class="cs-select" :disabled="!filterClase" @change="onProfesorChange">
+					<option value="">{{ filterClase ? 'Todos los Profesores' : 'Seleccione aula primero' }}</option>
+					<option v-for="opt in teacherOptions" :key="opt.id" :value="opt.id">{{ opt.label }}</option>
 				</select>
-				<select v-model="filterProfesor" class="cs-select">
-					<option value="">Todos los Profesores</option>
-					<option v-for="opt in uniqueProfesores" :key="opt" :value="opt">{{ opt }}</option>
+				<select v-model="filterMateria" class="cs-select" :disabled="!filterProfesor" @change="onMateriaChange">
+					<option value="">{{ filterProfesor ? 'Todas las Materias' : 'Seleccione profesor primero' }}</option>
+					<option v-for="opt in subjectOptions" :key="opt.id" :value="opt.id">{{ opt.label }}</option>
 				</select>
 				<button v-if="hasActiveFilters" class="cs-clear-btn" @click="clearFilters">✕ Limpiar</button>
 			</div>
@@ -75,17 +75,17 @@
 						<div class="cs-info-line">
 							<span class="cs-info-icon">📌</span>
 							<strong>Clase:</strong>
-							<span>{{ displayValue(getInfoField(item, ['classroom_id','class_id','clase','name','title','nombre'])) }}</span>
+							<span>{{ displayValue(getClassroomLabel(item)) }}</span>
 						</div>
 						<div class="cs-info-line">
 							<span class="cs-info-icon">📚</span>
 							<strong>Materia:</strong>
-							<span>{{ displayValue(getInfoField(item, ['subject_id','materia_id','materia','curso','course','subject','modulo'])) }}</span>
+							<span>{{ displayValue(getSubjectLabel(item)) }}</span>
 						</div>
 						<div class="cs-info-line">
 							<span class="cs-info-icon">👩‍🏫</span>
 							<strong>Profesor:</strong>
-							<span>{{ displayValue(getInfoField(item, ['teacher_id','profesor_id','profesor','teacher','docente','instructor'])) }}</span>
+							<span>{{ displayValue(getTeacherLabel(item)) }}</span>
 						</div>
 					</div>
 				</div>
@@ -106,48 +106,76 @@
 	</private-view>
 </template>
 
-<script>
-// TRUE module-level cache — persists across navigation
-const _cache = {
-	items: [],
-	loaded: false,
-};
-</script>
-
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useApi } from '@directus/extensions-sdk';
 import { useRouter } from 'vue-router';
 
 const api = useApi();
 const router = useRouter();
 
-const allItems = ref(_cache.loaded ? [..._cache.items] : []);
+const allItems = ref([]);
 const loading = ref(false);
 const localSearch = ref('');
 const filterEscuela = ref('');
 const filterClase = ref('');
 const filterMateria = ref('');
 const filterProfesor = ref('');
+const schoolOptions = ref([]);
+const classroomOptions = ref([]);
+const teacherOptions = ref([]);
+const subjectOptions = ref([]);
+const classroomTotalFromApi = ref(0);
 
 const COLLECTION = 'class_schedules_files';
+const SCHEDULES_COLLECTION = 'class_schedules';
+const CLASSROOMS_COLLECTION = 'classrooms';
+const DEFAULT_LIMIT = 500;
+const PAGE_SIZE = 200;
+const LOG_PREFIX = '[class-schedules filters]';
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 async function fetchItems() {
 	if (loading.value) return;
 	loading.value = true;
 	try {
+		const filter = {};
+		if (filterEscuela.value) filter.class_schedule_id = { school_id: { _eq: filterEscuela.value } };
+		if (filterClase.value) {
+			filter.class_schedule_id = {
+				...(filter.class_schedule_id || {}),
+				classroom_id: { _eq: filterClase.value },
+			};
+		}
+		if (filterProfesor.value) {
+			filter.class_schedule_id = {
+				...(filter.class_schedule_id || {}),
+				teacher_id: { _eq: filterProfesor.value },
+			};
+		}
+		if (filterMateria.value) {
+			filter.class_schedule_id = {
+				...(filter.class_schedule_id || {}),
+				subject_id: { _eq: filterMateria.value },
+			};
+		}
+
 		const res = await api.get(`/items/${COLLECTION}`, {
 			params: {
-				fields: ['*', '*.*', '*.*.*'],
-				limit: 500,
+				fields: [
+					'*',
+					'class_schedule_id.*',
+					'class_schedule_id.school_id.*',
+					'class_schedule_id.classroom_id.*',
+					'class_schedule_id.teacher_id.*',
+					'class_schedule_id.subject_id.*',
+				],
+				limit: DEFAULT_LIMIT,
 				sort: '-date_created',
+				filter,
 			},
 		});
-		const fetched = res.data?.data || [];
-		allItems.value = fetched;
-		_cache.items = [...fetched];
-		_cache.loaded = true;
+		allItems.value = res.data?.data || [];
 	} catch (e) {
 		console.error('[class-schedules module]', e);
 	} finally {
@@ -155,47 +183,53 @@ async function fetchItems() {
 	}
 }
 
-function forceRefresh() {
-	_cache.loaded = false;
-	fetchItems();
+function getRelationId(value) {
+	if (!value) return null;
+	if (typeof value === 'object') return value.id || null;
+	return String(value);
 }
 
-onMounted(() => {
-	if (_cache.loaded && _cache.items.length > 0) {
-		allItems.value = [..._cache.items];
-		// Silent background refresh
-		fetchItems();
-	} else {
-		fetchItems();
+function getRelationLabel(value, keys = ['name', 'nickname', 'nombre', 'title', 'first_name']) {
+	if (!value) return '--';
+	if (typeof value === 'string') return value;
+	if (typeof value === 'object') {
+		for (const key of keys) {
+			if (value[key]) return String(value[key]);
+		}
 	}
-});
+	return '--';
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const normalize = (s) =>
 	(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
-const getInfoField = (item, keys) => {
+const getSchedule = (item) => {
+	if (!item || typeof item !== 'object') return null;
+	if (item.class_schedule_id && typeof item.class_schedule_id === 'object') return item.class_schedule_id;
+	return null;
+};
+
+const getClassroomLabel = (item) => {
 	try {
-		for (const key of keys) {
-			const v = item[key];
-			if (v !== undefined && v !== null && v !== '') {
-				if (typeof v === 'object' && !Array.isArray(v))
-					return v.nickname || v.name || v.nombre || v.first_name || v.title || v.clase || '--';
-				return String(v);
-			}
-		}
-		// Also check class_schedule_id nested
-		const nested = item.class_schedule_id;
-		if (nested && typeof nested === 'object') {
-			for (const key of keys) {
-				const v = nested[key];
-				if (v !== undefined && v !== null && v !== '') {
-					if (typeof v === 'object' && !Array.isArray(v))
-						return v.nickname || v.name || v.nombre || v.first_name || v.title || v.clase || '--';
-					return String(v);
-				}
-			}
-		}
+		const schedule = getSchedule(item);
+		return getRelationLabel(schedule?.classroom_id, ['nickname', 'name', 'nombre', 'title']);
+	} catch (_) {}
+	return '--';
+};
+
+const getSubjectLabel = (item) => {
+	try {
+		const schedule = getSchedule(item);
+		return getRelationLabel(schedule?.subject_id, ['name', 'nombre', 'title']);
+	} catch (_) {}
+	return '--';
+};
+
+const getTeacherLabel = (item) => {
+	try {
+		const schedule = getSchedule(item);
+		return getRelationLabel(schedule?.teacher_id, ['name', 'nickname', 'nombre', 'first_name']);
 	} catch (_) {}
 	return '--';
 };
@@ -203,16 +237,6 @@ const getInfoField = (item, keys) => {
 const displayValue = (val) => {
 	if (val === undefined || val === null || val === '' || val === '--') return 'N/A';
 	return val;
-};
-
-const getSchool = (item) => {
-	try {
-		const cl = item.classroom_id;
-		if (!cl || typeof cl !== 'object') return '--';
-		const s = cl.school_id;
-		if (!s) return '--';
-		return (typeof s === 'object') ? (s.name || s.nombre || s.title || '--') : '--';
-	} catch { return '--'; }
 };
 
 const findTitle = (obj, depth = 0) => {
@@ -231,8 +255,9 @@ const findTitle = (obj, depth = 0) => {
 };
 
 const getTitle = (item) => {
-	if (item.class_schedule_id && typeof item.class_schedule_id === 'object') {
-		const t = findTitle(item.class_schedule_id);
+	const schedule = getSchedule(item);
+	if (schedule) {
+		const t = findTitle(schedule);
 		if (t) return t;
 	}
 	return findTitle(item) || 'Clase Sin Título';
@@ -271,13 +296,13 @@ const formatDate = (val) => {
 };
 
 const getDates = (item) => {
-	// En esta colección los campos son directos en el registro:
-	// start_date y end_date (no anidados).
-	const startRaw = item.start_date;
-	const endRaw = item.end_date;
+	const schedule = getSchedule(item);
+	const startRaw = schedule?.start_date || item.start_date;
+	const endRaw = schedule?.end_date || item.end_date;
+	const created = item.date_created || schedule?.date_created;
 
 	return [
-		{ label: 'Creación', value: formatDate(item.date_created) },
+		{ label: 'Creación', value: formatDate(created) },
 		{ label: 'Inicio', value: formatDate(startRaw) },
 		{ label: 'Fin', value: formatDate(endRaw) },
 	];
@@ -287,50 +312,227 @@ const navigate = (item) => {
 	router.push(`/content/${COLLECTION}/${item.id}`);
 };
 
-// ─── Computed filters ─────────────────────────────────────────────────────────
-const hasActiveFilters = computed(() =>
-	filterEscuela.value || filterClase.value || filterMateria.value || filterProfesor.value || localSearch.value
-);
+function uniqueOptionRows(rows, relationField, labelKeys) {
+	const map = new Map();
+	for (const row of rows) {
+		const relation = row?.[relationField];
+		const id = getRelationId(relation);
+		if (!id || map.has(id)) continue;
+		const label = getRelationLabel(relation, labelKeys);
+		if (label && label !== '--') map.set(id, { id, label });
+	}
+	return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'es'));
+}
 
-const clearFilters = () => {
+const visibleSchoolOptions = computed(() => {
+	if (schoolOptions.value.length > 0) return schoolOptions.value;
+	const rows = (allItems.value || []).map((item) => getSchedule(item)).filter(Boolean);
+	return uniqueOptionRows(rows, 'school_id', ['name', 'nombre', 'title']);
+});
+
+const classroomPlaceholderText = computed(() => {
+	if (!filterEscuela.value) return 'Seleccione escuela primero';
+	if (classroomTotalFromApi.value === 0) return 'No hay aulas para esta escuela';
+	return `Todas las Aulas (${classroomTotalFromApi.value})`;
+});
+
+async function fetchSchoolOptions() {
+	try {
+		const allSchools = [];
+		let page = 1;
+		while (true) {
+			const res = await api.get('/items/schools', {
+				params: {
+					limit: PAGE_SIZE,
+					page,
+				},
+			});
+			const rows = res.data?.data || [];
+			allSchools.push(...rows);
+			if (rows.length < PAGE_SIZE) break;
+			page += 1;
+		}
+
+		schoolOptions.value = allSchools
+			.map((school) => ({
+				id: school.id,
+				label: getRelationLabel(school, ['name', 'nombre', 'title']),
+			}))
+			.filter((option) => option.id && option.label !== '--')
+			.sort((a, b) => a.label.localeCompare(b.label, 'es'));
+		console.info(`${LOG_PREFIX} schools loaded (no filter):`, schoolOptions.value.length);
+	} catch (e) {
+		console.error('[class-schedules module] fetchSchoolOptions', e);
+		schoolOptions.value = [];
+	}
+}
+
+async function fetchClassroomOptions() {
+	if (!filterEscuela.value) {
+		classroomOptions.value = [];
+		classroomTotalFromApi.value = 0;
+		console.info(`${LOG_PREFIX} No school selected yet; classroom request skipped.`);
+		return;
+	}
+	const params = {
+		fields: ['id', 'name', 'nickname', 'nombre', 'title'],
+		limit: DEFAULT_LIMIT,
+		filter: { school_id: { _eq: filterEscuela.value } },
+		sort: ['name', 'nickname'],
+	};
+
+	console.groupCollapsed(`${LOG_PREFIX} Fetch classrooms for school`);
+	console.info('school_id:', filterEscuela.value);
+	console.info('endpoint:', `/items/${CLASSROOMS_COLLECTION}`);
+	console.info('params:', params);
+
+	try {
+		const res = await api.get(`/items/${CLASSROOMS_COLLECTION}`, {
+			params,
+		});
+		const rows = res.data?.data || [];
+		classroomTotalFromApi.value = rows.length;
+		classroomOptions.value = rows
+			.map((row) => ({
+				id: row.id,
+				label: getRelationLabel(row, ['nickname', 'name', 'nombre', 'title']),
+			}))
+			.filter((option) => option.id && option.label !== '--')
+			.sort((a, b) => a.label.localeCompare(b.label, 'es'));
+		console.info('total_classrooms_from_api:', rows.length);
+		console.info('classroom_options:', classroomOptions.value);
+		console.info(
+			'manual_url_example:',
+			`/items/${CLASSROOMS_COLLECTION}?filter[school_id][_eq]=${filterEscuela.value}&fields=id,name,nickname,nombre,title&limit=${DEFAULT_LIMIT}`
+		);
+	} catch (e) {
+		console.error('[class-schedules module] fetchClassroomOptions', e);
+		classroomOptions.value = [];
+		classroomTotalFromApi.value = 0;
+	} finally {
+		console.groupEnd();
+	}
+}
+
+async function fetchTeacherOptions() {
+	if (!filterEscuela.value || !filterClase.value) {
+		teacherOptions.value = [];
+		return;
+	}
+	try {
+		const res = await api.get(`/items/${SCHEDULES_COLLECTION}`, {
+			params: {
+				fields: ['teacher_id.id', 'teacher_id.name', 'teacher_id.nickname', 'teacher_id.nombre', 'teacher_id.first_name'],
+				limit: DEFAULT_LIMIT,
+				filter: {
+					school_id: { _eq: filterEscuela.value },
+					classroom_id: { _eq: filterClase.value },
+				},
+				sort: '-date_created',
+			},
+		});
+		teacherOptions.value = uniqueOptionRows(res.data?.data || [], 'teacher_id', ['name', 'nickname', 'nombre', 'first_name']);
+	} catch (e) {
+		console.error('[class-schedules module] fetchTeacherOptions', e);
+		teacherOptions.value = [];
+	}
+}
+
+async function fetchSubjectOptions() {
+	if (!filterEscuela.value || !filterClase.value || !filterProfesor.value) {
+		subjectOptions.value = [];
+		return;
+	}
+	try {
+		const res = await api.get(`/items/${SCHEDULES_COLLECTION}`, {
+			params: {
+				fields: ['subject_id.id', 'subject_id.name', 'subject_id.nickname', 'subject_id.nombre', 'subject_id.title'],
+				limit: DEFAULT_LIMIT,
+				filter: {
+					school_id: { _eq: filterEscuela.value },
+					classroom_id: { _eq: filterClase.value },
+					teacher_id: { _eq: filterProfesor.value },
+				},
+				sort: '-date_created',
+			},
+		});
+		subjectOptions.value = uniqueOptionRows(res.data?.data || [], 'subject_id', ['name', 'nickname', 'nombre', 'title']);
+	} catch (e) {
+		console.error('[class-schedules module] fetchSubjectOptions', e);
+		subjectOptions.value = [];
+	}
+}
+
+async function onEscuelaChange() {
+	filterClase.value = '';
+	filterProfesor.value = '';
+	filterMateria.value = '';
+	classroomOptions.value = [];
+	classroomTotalFromApi.value = 0;
+	teacherOptions.value = [];
+	subjectOptions.value = [];
+	await fetchClassroomOptions();
+	await fetchItems();
+}
+
+async function onAulaChange() {
+	filterProfesor.value = '';
+	filterMateria.value = '';
+	teacherOptions.value = [];
+	subjectOptions.value = [];
+	await fetchTeacherOptions();
+	await fetchItems();
+}
+
+async function onProfesorChange() {
+	filterMateria.value = '';
+	subjectOptions.value = [];
+	await fetchSubjectOptions();
+	await fetchItems();
+}
+
+async function onMateriaChange() {
+	await fetchItems();
+}
+
+function forceRefresh() {
+	if (filterEscuela.value) fetchClassroomOptions();
+	if (filterEscuela.value && filterClase.value) fetchTeacherOptions();
+	if (filterEscuela.value && filterClase.value && filterProfesor.value) fetchSubjectOptions();
+	fetchItems();
+}
+
+const clearFilters = async () => {
 	filterEscuela.value = '';
 	filterClase.value = '';
 	filterMateria.value = '';
 	filterProfesor.value = '';
 	localSearch.value = '';
+	classroomOptions.value = [];
+	classroomTotalFromApi.value = 0;
+	teacherOptions.value = [];
+	subjectOptions.value = [];
+	await fetchItems();
 };
 
-const uniqueEscuelas = computed(() => {
-	const s = new Set(allItems.value.map(i => getSchool(i)));
-	return [...s].filter(v => v !== '--').sort();
+onMounted(async () => {
+	await fetchSchoolOptions();
+	await fetchItems();
 });
-const uniqueClases = computed(() => {
-	const s = new Set(allItems.value.map(i => getInfoField(i, ['classroom_id','class_id','clase','name','title','nombre'])));
-	return [...s].filter(v => v !== '--').sort();
-});
-const uniqueMaterias = computed(() => {
-	const s = new Set(allItems.value.map(i => getInfoField(i, ['subject_id','materia_id','materia','curso','course','subject','modulo'])));
-	return [...s].filter(v => v !== '--').sort();
-});
-const uniqueProfesores = computed(() => {
-	const s = new Set(allItems.value.map(i => getInfoField(i, ['teacher_id','profesor_id','profesor','teacher','docente','instructor'])));
-	return [...s].filter(v => v !== '--').sort();
-});
+
+// ─── Computed filters ─────────────────────────────────────────────────────────
+const hasActiveFilters = computed(() =>
+	filterEscuela.value || filterClase.value || filterMateria.value || filterProfesor.value || localSearch.value
+);
 
 const filteredItems = computed(() => {
 	return allItems.value.filter(item => {
-		const escuela  = getSchool(item);
-		const clase    = getInfoField(item, ['classroom_id','class_id','clase','name','title','nombre']);
-		const materia  = getInfoField(item, ['subject_id','materia_id','materia','curso','course','subject','modulo']);
-		const profesor = getInfoField(item, ['teacher_id','profesor_id','profesor','teacher','docente','instructor']);
+		const clase    = getClassroomLabel(item);
+		const materia  = getSubjectLabel(item);
+		const profesor = getTeacherLabel(item);
 
 		// Solo mostrar cards que tengan clase válida.
 		if (!clase || clase === '--') return false;
-
-		if (filterEscuela.value  && filterEscuela.value  !== escuela)  return false;
-		if (filterClase.value    && filterClase.value    !== clase)    return false;
-		if (filterMateria.value  && filterMateria.value  !== materia)  return false;
-		if (filterProfesor.value && filterProfesor.value !== profesor) return false;
 
 		if (localSearch.value.trim()) {
 			const q = normalize(localSearch.value);
@@ -388,6 +590,10 @@ const filteredItems = computed(() => {
 	transition: border-color 0.2s;
 }
 .cs-select:focus { border-color: var(--theme--primary, #6644ff); }
+.cs-select:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
 .cs-clear-btn {
 	padding: 8px 16px;
 	border: none;
