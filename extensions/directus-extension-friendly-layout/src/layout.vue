@@ -1,15 +1,39 @@
 <template>
-	<div class="friendly-layout-container">
-		<!-- Mostrar cargando solo si es la primera vez y el cache está vacío -->
-		<div v-if="loading && (!items[collectionName] || items[collectionName].length === 0)" class="no-items">Cargando elementos...</div>
-		<div v-else-if="error" class="no-items">Error: {{ error.message }}</div>
-		<!-- Renderizar directamente desde la memoria cache -->
-		<router-link 
-			v-for="item in (items[collectionName] || [])" 
-			:key="item.id || Math.random()" 
-			:to="`/content/${collectionName}/${item.id}`" 
-			class="friendly-card"
-		>
+	<div class="friendly-layout-wrapper">
+		<!-- Barra de herramientas con Filtros Custom -->
+		<div class="friendly-toolbar" v-if="items[collectionName] && items[collectionName].length > 0">
+			<div class="filters-row">
+				<select v-model="filterClase" class="filter-select">
+					<option value="">Todas las Clases</option>
+					<option v-for="opt in uniqueClases" :key="opt" :value="opt">{{ opt }}</option>
+				</select>
+				<select v-model="filterMateria" class="filter-select">
+					<option value="">Todas las Materias</option>
+					<option v-for="opt in uniqueMaterias" :key="opt" :value="opt">{{ opt }}</option>
+				</select>
+				<select v-model="filterProfesor" class="filter-select">
+					<option value="">Todos los Profesores</option>
+					<option v-for="opt in uniqueProfesores" :key="opt" :value="opt">{{ opt }}</option>
+				</select>
+			</div>
+			<div class="search-box">
+				<span class="search-icon">🔍</span>
+				<input type="text" v-model="localSearch" class="search-input" placeholder="Buscar texto..." />
+			</div>
+		</div>
+
+		<div class="friendly-layout-container">
+			<!-- Mostrar cargando solo si es la primera vez y el cache está vacío -->
+			<div v-if="loading && (!items[collectionName] || items[collectionName].length === 0)" class="no-items">Cargando elementos...</div>
+			<div v-else-if="error" class="no-items">Error: {{ error.message }}</div>
+			
+			<!-- Renderizar el listado filtrado -->
+			<router-link 
+				v-for="item in filteredItems" 
+				:key="item.id || Math.random()" 
+				:to="`/content/${collectionName}/${item.id}`" 
+				class="friendly-card"
+			>
 			<div class="friendly-card-header">
 				<h3 class="friendly-card-title">{{ getTitle(item) }}</h3>
 				<span v-if="getStatus(item)" class="friendly-badge" :style="{ backgroundColor: getStatus(item).color }">
@@ -35,14 +59,19 @@
 				</div>
 			</div>
 		</router-link>
-		<div v-if="!loading && (!items[collectionName] || items[collectionName].length === 0)" class="no-items">
+
+		<div v-if="!loading && filteredItems.length === 0 && (items[collectionName] && items[collectionName].length > 0)" class="no-items">
+			No se encontraron resultados para "{{ localSearch }}"
+		</div>
+		<div v-else-if="!loading && (!items[collectionName] || items[collectionName].length === 0)" class="no-items">
 			No hay elementos para mostrar en esta vista.
+		</div>
 		</div>
 	</div>
 </template>
 
 <script lang="ts">
-import { defineComponent, toRefs, ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { defineComponent, toRefs, ref, watch, onMounted, onBeforeUnmount, computed } from 'vue';
 import { useItems } from '@directus/extensions-sdk';
 
 // Caché global en memoria del módulo para que los items persistan al navegar entre rutas
@@ -235,6 +264,63 @@ export default defineComponent({
 			} catch (e) { return '--'; }
 		};
 
+		const localSearch = ref('');
+		const filterClase = ref('');
+		const filterMateria = ref('');
+		const filterProfesor = ref('');
+
+		const removeAccents = (str: string) => {
+			return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+		};
+
+		const uniqueClases = computed(() => {
+			const rawItems = layoutCache.value[collection.value] || [];
+			const set = new Set(rawItems.map((i: any) => getInfoField(i, ['classroom_id', 'class_id', 'clase', 'name', 'title', 'nombre'])));
+			return Array.from(set).filter(v => v !== '--').sort();
+		});
+
+		const uniqueMaterias = computed(() => {
+			const rawItems = layoutCache.value[collection.value] || [];
+			const set = new Set(rawItems.map((i: any) => getInfoField(i, ['subject_id', 'materia_id', 'materia', 'curso', 'course', 'subject', 'modulo'])));
+			return Array.from(set).filter(v => v !== '--').sort();
+		});
+
+		const uniqueProfesores = computed(() => {
+			const rawItems = layoutCache.value[collection.value] || [];
+			const set = new Set(rawItems.map((i: any) => getInfoField(i, ['teacher_id', 'profesor_id', 'profesor', 'teacher', 'docente', 'instructor'])));
+			return Array.from(set).filter(v => v !== '--').sort();
+		});
+
+		const filteredItems = computed(() => {
+			const rawItems = layoutCache.value[collection.value] || [];
+			
+			return rawItems.filter((item: any) => {
+				const clase = getInfoField(item, ['classroom_id', 'class_id', 'clase', 'name', 'title', 'nombre']);
+				const materia = getInfoField(item, ['subject_id', 'materia_id', 'materia', 'curso', 'course', 'subject', 'modulo']);
+				const profesor = getInfoField(item, ['teacher_id', 'profesor_id', 'profesor', 'teacher', 'docente', 'instructor']);
+				
+				// Filtros Dropdown strictos
+				if (filterClase.value && filterClase.value !== clase) return false;
+				if (filterMateria.value && filterMateria.value !== materia) return false;
+				if (filterProfesor.value && filterProfesor.value !== profesor) return false;
+
+				// Búsqueda de texto (insensible a acentos/tildes)
+				if (localSearch.value && localSearch.value.trim() !== '') {
+					const query = removeAccents(localSearch.value.toLowerCase().trim());
+					const sTitle = removeAccents(getTitle(item).toLowerCase());
+					const sClase = removeAccents(clase.toLowerCase());
+					const sMateria = removeAccents(materia.toLowerCase());
+					const sProf = removeAccents(profesor.toLowerCase());
+					
+					if (!sTitle.includes(query) && !sClase.includes(query) && !sMateria.includes(query) && !sProf.includes(query)) {
+						return false;
+					}
+				}
+
+				return true;
+			});
+		});
+
 		return {
 			items: layoutCache,
 			collectionName: collection,
@@ -244,20 +330,91 @@ export default defineComponent({
 			getStatus,
 			getDetails,
 			getInfoField,
-			formatValue
+			formatValue,
+			localSearch,
+			filterClase,
+			filterMateria,
+			filterProfesor,
+			uniqueClases,
+			uniqueMaterias,
+			uniqueProfesores,
+			filteredItems
 		};
 	},
 });
 </script>
 
 <style scoped>
+.friendly-layout-wrapper {
+	display: flex;
+	flex-direction: column;
+	min-height: 100%;
+	background-color: var(--theme--background, #f4f6f8);
+}
+.friendly-toolbar {
+	padding: 24px 24px 0 24px;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 16px;
+	flex-wrap: wrap;
+}
+.filters-row {
+	display: flex;
+	gap: 12px;
+	flex-grow: 1;
+	flex-wrap: wrap;
+}
+.filter-select {
+	padding: 8px 32px 8px 12px;
+	border: 1px solid var(--theme--border-color, #e0e0e0);
+	border-radius: 8px;
+	background: var(--theme--background-normal, #ffffff);
+	color: var(--theme--foreground, #333);
+	font-size: 13px;
+	outline: none;
+	cursor: pointer;
+    background-image: url('data:image/svg+xml;utf8,<svg fill="black" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>');
+    background-repeat: no-repeat;
+    background-position-x: calc(100% - 6px);
+    background-position-y: center;
+    appearance: none;
+	-webkit-appearance: none;
+}
+.search-box {
+	position: relative;
+	width: 100%;
+	max-width: 300px;
+	display: flex;
+	align-items: center;
+}
+.search-icon {
+	position: absolute;
+	left: 14px;
+	font-size: 14px;
+	color: var(--theme--foreground-subdued, #888);
+}
+.search-input {
+	width: 100%;
+	padding: 10px 16px 10px 38px;
+	border: 1px solid var(--theme--border-color, #e0e0e0);
+	border-radius: 20px;
+	background: var(--theme--background-normal, #ffffff);
+	color: var(--theme--foreground, #333);
+	font-size: 14px;
+	outline: none;
+	transition: all 0.2s;
+}
+.search-input:focus {
+	border-color: var(--theme--primary, #6644ff);
+	box-shadow: 0 0 0 3px rgba(102, 68, 255, 0.15);
+}
+
 .friendly-layout-container {
 	padding: 24px;
 	display: grid;
 	grid-template-columns: repeat(3, 1fr);
 	gap: 24px;
-	background-color: var(--theme--background, #f4f6f8);
-	min-height: 100%;
 }
 
 @media (max-width: 1400px) {
