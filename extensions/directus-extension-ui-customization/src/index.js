@@ -13,16 +13,7 @@ export default ({ action }, { database, logger }) => {
    DAHUA BRANDING & UI CLEANUP
    ========================================================== */
 
-/* 1. Remove Directus version row only (keep Settings menus visible) */
-.version-label,
-.sub-sidebar [class*="version-label"],
-.sub-sidebar .v-list-item:has(.version-label),
-.sub-sidebar .v-list-item:has([class*="version-label"]),
-.v-list-item[href^="/admin/settings/report-issue"] { 
-    display: none !important; 
-}
-
-/* 1c. Exact selectors from current DOM */
+/* 1. Hide only version row (do NOT hide any Settings list container) */
 a.v-list-item.link.version,
 .v-list-item.link.version,
 .v-list-item .v-text-overflow.version {
