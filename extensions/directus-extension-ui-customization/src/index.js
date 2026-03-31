@@ -16,7 +16,17 @@ export default ({ action }, { database, logger }) => {
 /* 1. Hide only version row (do NOT hide any Settings list container) */
 a.v-list-item.link.version,
 .v-list-item.link.version,
-.v-list-item .v-text-overflow.version {
+.v-list-item .v-text-overflow.version,
+div.v-text-overflow.version,
+.sub-sidebar a.v-list-item.link.version,
+.sub-sidebar .v-list-item.link.version {
+    display: none !important;
+}
+
+/* 1b. Hard fallback: hide any row that contains version text node */
+.v-list-item:has(div.v-text-overflow.version),
+a.v-list-item:has(div.v-text-overflow.version),
+.sub-sidebar .v-list-item:has(div.v-text-overflow.version) {
     display: none !important;
 }
 
