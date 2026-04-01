@@ -2,8 +2,17 @@ export default ({ action }, { database, logger }) => {
     // Update project name and hide UI elements via Custom CSS
     action('server.start', async () => {
         try {
-            const currentSettings = await database('directus_settings')
-                .first('project_name', 'project_descriptor', 'custom_css', 'custom_js');
+            let hasCustomJsColumn = false;
+            try {
+                hasCustomJsColumn = await database.schema.hasColumn('directus_settings', 'custom_js');
+            } catch (schemaError) {
+                logger.warn(`[branding-fix] Could not verify custom_js column: ${schemaError.message}`);
+            }
+
+            const selectedFields = ['project_name', 'project_descriptor', 'custom_css'];
+            if (hasCustomJsColumn) selectedFields.push('custom_js');
+
+            const currentSettings = await database('directus_settings').first(...selectedFields);
 
             const targetProjectName = 'Dahua';
             // Zero-width space prevents Directus fallback title "Directus · {project}"
@@ -58,12 +67,54 @@ header .v-icon[name="store"] { display: none !important; }
 .v-tooltip {
     display: none !important;
 }
+
+/* 6. Hide only two Settings links: Reportar Error + Solicitar Característica */
+a.v-list-item[href*="issues/new?template=bug_report.yml"],
+a.v-list-item[href*="roadmap.directus.io"],
+a.v-list-item.link[href*="directus/directus/issues/new"],
+a.v-list-item.link[href*="template=bug_report"],
+a.v-list-item.link[href*="roadmap.directus.io"],
+.v-list-item.link[href*="directus/directus/issues/new"],
+.v-list-item.link[href*="template=bug_report"],
+.v-list-item.link[href*="roadmap.directus.io"] {
+    display: none !important;
+}
 `;
             const targetCustomJS = `
 (() => {
-  const fixedTitle = 'Dahua';
+  const normalize = (s) =>
+    (s || '')
+      .normalize('NFD')
+      .replace(/[\\u0300-\\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
+  const hideSupportLinks = () => {
+    const labelsToHide = new Set([
+      'reportar error',
+      'solicitar caracteristicas',
+      'solicitar caracteristica'
+    ]);
+
+    const labels = document.querySelectorAll('.v-list-item .v-text-overflow.label, .v-list-item .label .v-text-overflow');
+    labels.forEach((label) => {
+      const text = normalize(label.textContent);
+      if (!labelsToHide.has(text)) return;
+
+      const row = label.closest('a.v-list-item, .v-list-item');
+      if (row) row.style.display = 'none';
+    });
+  };
+
+  const stripTitlePrefix = () => {
+    const current = document.title || '';
+    const next = current.replace(/^\\s*Directus\\s*[·•\\-|:]\\s*/i, '').trim();
+    if (next && next !== current) document.title = next;
+  };
+
   const apply = () => {
-    if (document.title !== fixedTitle) document.title = fixedTitle;
+    stripTitlePrefix();
+    hideSupportLinks();
   };
 
   apply();
@@ -73,17 +124,8 @@ header .v-icon[name="store"] { display: none !important; }
 
   const obs = new MutationObserver(apply);
   obs.observe(document.documentElement, { childList: true, subtree: true });
-
-  setInterval(apply, 1000);
 })();
 `;
-
-            let hasCustomJsColumn = false;
-            try {
-                hasCustomJsColumn = await database.schema.hasColumn('directus_settings', 'custom_js');
-            } catch (schemaError) {
-                logger.warn(`[branding-fix] Could not verify custom_js column: ${schemaError.message}`);
-            }
 
             if (
                 currentSettings.project_name !== targetProjectName ||
