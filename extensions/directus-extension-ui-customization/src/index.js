@@ -106,21 +106,51 @@ a.v-list-item.link[href*="roadmap.directus.io"],
     });
   };
 
-  const stripTitlePrefix = () => {
-    const current = document.title || '';
-    const next = current.replace(/^\\s*Directus\\s*[·•\\-|:]\\s*/i, '').trim();
-    if (next && next !== current) document.title = next;
+  const fixedTitle = 'testeeee';
+
+  const forceTitle = () => {
+    const titleNode = document.querySelector('title');
+    if (titleNode && titleNode.textContent !== fixedTitle) {
+      titleNode.textContent = fixedTitle;
+    }
+    if (document.title !== fixedTitle) {
+      document.title = fixedTitle;
+    }
+  };
+
+  const hardPatchTitleSetter = () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'title');
+    if (!descriptor || !descriptor.configurable) return;
+
+    try {
+      Object.defineProperty(document, 'title', {
+        configurable: true,
+        enumerable: true,
+        get() {
+          return fixedTitle;
+        },
+        set() {
+          if (descriptor.set) descriptor.set.call(document, fixedTitle);
+          const titleNode = document.querySelector('title');
+          if (titleNode) titleNode.textContent = fixedTitle;
+        }
+      });
+    } catch (_) {
+      // Ignore if browser/runtime blocks redefining the property.
+    }
   };
 
   const apply = () => {
-    stripTitlePrefix();
+    forceTitle();
     hideSupportLinks();
   };
 
+  hardPatchTitleSetter();
   apply();
   window.addEventListener('load', apply);
   window.addEventListener('hashchange', apply);
   window.addEventListener('popstate', apply);
+  window.setInterval(forceTitle, 250);
 
   const obs = new MutationObserver(apply);
   obs.observe(document.documentElement, { childList: true, subtree: true });
