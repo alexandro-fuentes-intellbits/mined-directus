@@ -40,20 +40,10 @@ a.v-list-item:has(div.v-text-overflow.version),
 }
 
 /* 2. Hide specific sidebar items by link */
-.v-list-item[href^="/admin/content"],
 .v-list-item[href^="/admin/marketplace"],
 .v-list-item[href^="/admin/bookmarks"],
 .v-list-item[href^="/admin/insights"] { 
     display: none !important; 
-}
-
-/* 2b. Hide main module icon for Content in left rail */
-.module-bar a[href^="/admin/content"],
-.module-nav a[href^="/admin/content"],
-nav a[href^="/admin/content"][class*="module"],
-nav .module[href*="/admin/content"],
-nav [data-module="content"] {
-    display: none !important;
 }
 
 /* 3. Hide marketplace icon in header header if present */
@@ -68,45 +58,29 @@ header .v-icon[name="store"] { display: none !important; }
     display: none !important;
 }
 
-/* 6. Hide only two Settings links: Reportar Error + Solicitar Característica */
+/* 6. Hide support links in settings sidebar */
+a.v-list-item[href*="template=bug_report"],
 a.v-list-item[href*="issues/new?template=bug_report.yml"],
-a.v-list-item[href*="roadmap.directus.io"],
-a.v-list-item.link[href*="directus/directus/issues/new"],
-a.v-list-item.link[href*="template=bug_report"],
-a.v-list-item.link[href*="roadmap.directus.io"],
-.v-list-item.link[href*="directus/directus/issues/new"],
-.v-list-item.link[href*="template=bug_report"],
-.v-list-item.link[href*="roadmap.directus.io"] {
+a.v-list-item[href*="roadmap.directus.io"] {
     display: none !important;
 }
+
 `;
             const targetCustomJS = `
 (() => {
-  const normalize = (s) =>
-    (s || '')
+  const fixedTitle = 'testeeee';
+  const hiddenSupportLabels = [
+    'reportar error',
+    'solicitar caracteristicas',
+    'solicitar característica',
+    'solicitar características'
+  ];
+  const normalizeText = (value) =>
+    (value || '')
       .normalize('NFD')
-      .replace(/[\\u0300-\\u036f]/g, '')
+      .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .trim();
-
-  const hideSupportLinks = () => {
-    const labelsToHide = new Set([
-      'reportar error',
-      'solicitar caracteristicas',
-      'solicitar caracteristica'
-    ]);
-
-    const labels = document.querySelectorAll('.v-list-item .v-text-overflow.label, .v-list-item .label .v-text-overflow');
-    labels.forEach((label) => {
-      const text = normalize(label.textContent);
-      if (!labelsToHide.has(text)) return;
-
-      const row = label.closest('a.v-list-item, .v-list-item');
-      if (row) row.style.display = 'none';
-    });
-  };
-
-  const fixedTitle = 'testeeee';
 
   const forceTitle = () => {
     const titleNode = document.querySelector('title');
@@ -142,7 +116,25 @@ a.v-list-item.link[href*="roadmap.directus.io"],
 
   const apply = () => {
     forceTitle();
-    hideSupportLinks();
+
+    document.querySelectorAll('.v-list-item').forEach((item) => {
+      const candidates = [
+        item.querySelector('.v-text-overflow.label'),
+        item.querySelector('.label .v-text-overflow'),
+        item.querySelector('.type-label'),
+        item.querySelector('.title'),
+        item
+      ];
+
+      const matchesHiddenLabel = candidates.some((node) => {
+        const text = normalizeText(node?.textContent);
+        return text && hiddenSupportLabels.some((label) => text.includes(label));
+      });
+
+      if (matchesHiddenLabel) {
+        item.style.display = 'none';
+      }
+    });
   };
 
   hardPatchTitleSetter();
