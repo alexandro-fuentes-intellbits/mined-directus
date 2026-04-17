@@ -14,6 +14,42 @@ const VIDEO_EXTENSIONS = {
     '.ts': 'video/mp2t',
 };
 
+const FLOW_TRIGGER_URL = process.env.PLAIN_WEBHOOK_FORWARD_URL || 'http://35.231.128.236:8055/flows/trigger/a6d766c8-6ada-4be1-9b9f-2f8aed9cb0b8';
+
+async function readRawBody(req) {
+    return await new Promise((resolve, reject) => {
+        let body = '';
+        req.setEncoding('utf8');
+        req.on('data', (chunk) => {
+            body += chunk;
+        });
+        req.on('end', () => resolve(body));
+        req.on('error', reject);
+    });
+}
+
+function isPlainObject(value) {
+    return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isEmptyPlainObject(value) {
+    return isPlainObject(value) && Object.keys(value).length === 0;
+}
+
+function parseFromText(rawText) {
+    const text = String(rawText ?? '');
+    const trimmed = text.trim();
+    if (!trimmed) return { text: '' };
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+            return JSON.parse(trimmed);
+        } catch {
+            return { text };
+        }
+    }
+    return { text };
+}
+
 function getVideoMimeType(filename) {
     if (!filename) return null;
     const lower = filename.toLowerCase();
@@ -83,6 +119,63 @@ export default defineEndpoint((router, { services, database, getSchema, logger }
             logger.error('[video-fix] Error fixing MIME types:', error);
             res.status(500).json({
                 error: 'Failed to fix MIME types',
+                details: error.message,
+            });
+        }
+    });
+
+    // POST /video-fix/plain-to-json-webhook
+    // Accepts text/plain and forwards as application/json to the flow trigger URL
+    router.post('/plain-to-json-webhook', async (req, res) => {
+        try {
+            const body = req.body;
+            const contentLength = Number(req.headers['content-length'] || 0);
+            const contentType = String(req.headers['content-type'] || '').toLowerCase();
+            let payload;
+
+            if (isPlainObject(body) && !isEmptyPlainObject(body)) {
+                // Preserve incoming JSON object payloads as-is.
+                payload = body;
+            } else if (typeof body === 'string') {
+                payload = parseFromText(body);
+            } else if (Array.isArray(body)) {
+                payload = body;
+            } else if (body == null || isEmptyPlainObject(body)) {
+                const rawBody = contentLength > 0 || contentType.includes('text/plain')
+                    ? await readRawBody(req)
+                    : '';
+                payload = parseFromText(rawBody);
+            } else {
+                payload = { text: String(body) };
+            }
+
+            const upstreamResponse = await fetch(FLOW_TRIGGER_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            const responseText = await upstreamResponse.text();
+            let parsedResponse;
+            try {
+                parsedResponse = JSON.parse(responseText);
+            } catch {
+                parsedResponse = responseText;
+            }
+
+            return res.status(upstreamResponse.status).json({
+                success: upstreamResponse.ok,
+                forwardedTo: FLOW_TRIGGER_URL,
+                sentPayload: payload,
+                upstream: parsedResponse,
+            });
+        } catch (error) {
+            logger.error('[video-fix] Error forwarding plain text webhook:', error);
+            return res.status(500).json({
+                success: false,
+                error: 'Failed to forward plain text payload to webhook',
                 details: error.message,
             });
         }
